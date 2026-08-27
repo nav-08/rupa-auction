@@ -22,7 +22,6 @@
     </div>
     
     <div class="flex items-center gap-2">
-      <!-- Admin Button -->
       <button id="adminToggleBtn" class="text-[10px] font-bold px-2 py-1 bg-slate-800 border border-slate-700 rounded text-slate-400 hover:text-slate-200">
         Admin
       </button>
@@ -36,7 +35,7 @@
     </div>
   </header>
 
-  <!-- Admin Bar (Hidden by default, toggled via button or ?admin=true) -->
+  <!-- Admin Bar -->
   <section id="adminPanel" class="hidden bg-rose-950/80 border-b border-rose-500/40 px-4 py-2 flex items-center justify-between">
     <span class="text-[11px] font-bold text-rose-300">ADMIN CONTROLS</span>
     <div class="flex gap-2">
@@ -57,7 +56,7 @@
     <div id="status-T4">T4: <span>Draft</span></div>
   </section>
 
-  <!-- Main Scrollable Area -->
+  <!-- Main Content -->
   <main class="flex-1 overflow-y-auto pb-32 no-scrollbar px-3 pt-3">
     <!-- Results Screen -->
     <section id="resultsSection" class="hidden mb-6">
@@ -76,6 +75,17 @@
         <select id="captainSelector" class="w-full bg-slate-950 border border-slate-700 text-slate-200 text-xs font-bold rounded-lg p-2 focus:outline-none focus:border-emerald-500">
           <option value="">-- Choose Captain (Auto-assigned to Squad) --</option>
         </select>
+      </div>
+
+      <!-- Live Bid Quota Tracker Card -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-2.5 mb-3 text-[11px]">
+        <div class="font-bold text-slate-300 mb-1">Required Active Bids to Lock:</div>
+        <div class="grid grid-cols-4 gap-1 text-center font-bold" id="quotaTrackerBar">
+          <div id="quota-GK" class="bg-slate-950 p-1.5 rounded border border-slate-800 text-slate-400">GK: 0/1</div>
+          <div id="quota-DF" class="bg-slate-950 p-1.5 rounded border border-slate-800 text-slate-400">DF: 0/3</div>
+          <div id="quota-MF" class="bg-slate-950 p-1.5 rounded border border-slate-800 text-slate-400">MF: 0/2</div>
+          <div id="quota-ST" class="bg-slate-950 p-1.5 rounded border border-slate-800 text-slate-400">ST: 0/1</div>
+        </div>
       </div>
 
       <!-- Positional Filters -->
@@ -119,6 +129,8 @@
     let players = [];
     let captains = {};
     let activeFilter = "ALL";
+
+    const TOTAL_TARGETS = { GK: 1, DF: 3, MF: 2, ST: 1 };
 
     // Auto-check URL for ?admin=true
     const urlParams = new URLSearchParams(window.location.search);
@@ -178,10 +190,52 @@
       renderPlayerList();
     });
 
+    function getRemainingNeeds() {
+      const capId = captains[currentTeamId];
+      const capPlayer = players.find(p => p.id == capId);
+      
+      let needs = { ...TOTAL_TARGETS };
+      if (capPlayer) {
+        needs[capPlayer.pos] = Math.max(0, needs[capPlayer.pos] - 1);
+      }
+      return needs;
+    }
+
+    function getActiveBidCounts() {
+      let counts = { GK: 0, DF: 0, MF: 0, ST: 0 };
+      const capId = captains[currentTeamId];
+
+      for (const [pId, amt] of Object.entries(myBids)) {
+        if (pId == capId) continue;
+        if (amt > 0) {
+          const p = players.find(pl => pl.id == pId);
+          if (p) counts[p.pos]++;
+        }
+      }
+      return counts;
+    }
+
     document.getElementById("lockSubmitBtn").addEventListener("click", () => {
       if (!captains[currentTeamId]) return alert("Please select a team captain first!");
+
       const total = Object.values(myBids).reduce((s, v) => s + (Number(v) || 0), 0);
       if (total > 100) return alert("Total bids exceed 100 points!");
+
+      // Enforce Minimum Bid Requirements
+      const needs = getRemainingNeeds();
+      const currentBids = getActiveBidCounts();
+
+      let missing = [];
+      for (const [pos, neededCount] of Object.entries(needs)) {
+        if (currentBids[pos] < neededCount) {
+          missing.push(`${pos}: need bids on ${neededCount} player(s), currently have ${currentBids[pos]}`);
+        }
+      }
+
+      if (missing.length > 0) {
+        alert("Cannot lock yet! You must bid on at least your required squad slots:\n\n• " + missing.join("\n• "));
+        return;
+      }
 
       if (confirm(`Lock in final bids for ${currentTeamId}?`)) {
         isLocked = true;
@@ -308,6 +362,22 @@
       const purseElem = document.getElementById("purseDisplay");
       purseElem.textContent = `${remain} Pts`;
       purseElem.className = remain < 0 ? "text-lg font-black text-rose-500 animate-pulse leading-none" : "text-lg font-black text-emerald-400 leading-none";
+
+      // Update Live Quota Tracker
+      const needs = getRemainingNeeds();
+      const currentCounts = getActiveBidCounts();
+
+      ['GK', 'DF', 'MF', 'ST'].forEach(pos => {
+        const el = document.getElementById(`quota-${pos}`);
+        const needed = needs[pos];
+        const have = currentCounts[pos];
+        el.textContent = `${pos}: ${have}/${needed}`;
+        if (have >= needed) {
+          el.className = "bg-emerald-950/80 p-1.5 rounded border border-emerald-500/40 text-emerald-400";
+        } else {
+          el.className = "bg-slate-950 p-1.5 rounded border border-slate-800 text-slate-400";
+        }
+      });
     }
 
     function renderResults(results) {
