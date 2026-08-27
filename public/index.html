@@ -13,19 +13,41 @@
   </style>
 </head>
 <body class="h-full text-slate-100 flex flex-col font-sans select-none antialiased">
-  <!-- Top App Bar -->
+
+  <!-- Top Navigation Bar -->
   <header class="bg-slate-900 border-b border-slate-800 px-4 py-2.5 sticky top-0 z-30 flex items-center justify-between shadow-md">
     <div class="flex items-center gap-2">
       <div class="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse"></div>
       <h1 class="text-sm font-black tracking-wider text-emerald-400">RUPA CUP</h1>
     </div>
-    <select id="teamSelector" class="bg-slate-950 border border-slate-700 text-slate-200 text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none">
-      <option value="T1">Team 1</option>
-      <option value="T2">Team 2</option>
-      <option value="T3">Team 3</option>
-      <option value="T4">Team 4</option>
-    </select>
+    
+    <div class="flex items-center gap-2">
+      <!-- Admin Button -->
+      <button id="adminToggleBtn" class="text-[10px] font-bold px-2 py-1 bg-slate-800 border border-slate-700 rounded text-slate-400 hover:text-slate-200">
+        Admin
+      </button>
+
+      <select id="teamSelector" class="bg-slate-950 border border-slate-700 text-slate-200 text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none">
+        <option value="T1">Team 1</option>
+        <option value="T2">Team 2</option>
+        <option value="T3">Team 3</option>
+        <option value="T4">Team 4</option>
+      </select>
+    </div>
   </header>
+
+  <!-- Admin Bar (Hidden by default, toggled via button or ?admin=true) -->
+  <section id="adminPanel" class="hidden bg-rose-950/80 border-b border-rose-500/40 px-4 py-2 flex items-center justify-between">
+    <span class="text-[11px] font-bold text-rose-300">ADMIN CONTROLS</span>
+    <div class="flex gap-2">
+      <button id="forceResolveBtn" class="text-[11px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2.5 py-1 rounded">
+        Force Resolve
+      </button>
+      <button id="resetAuctionBtn" class="text-[11px] bg-rose-600 hover:bg-rose-500 text-white font-bold px-2.5 py-1 rounded">
+        Reset All
+      </button>
+    </div>
+  </section>
 
   <!-- Live Status Bar -->
   <section class="bg-slate-900/60 border-b border-slate-800/80 px-4 py-2 flex justify-between text-[11px] font-semibold text-slate-400">
@@ -41,18 +63,14 @@
     <section id="resultsSection" class="hidden mb-6">
       <div class="bg-emerald-950/40 border border-emerald-500/40 rounded-xl p-3 mb-4 text-center">
         <h2 class="text-sm font-black text-emerald-400 uppercase tracking-wide">Auction Completed</h2>
-        <p class="text-[11px] text-slate-400">Formation: 1 GK &bull; 3 DF &bull; 2 MF &bull; 1 ST</p>
+        <p class="text-[11px] text-slate-400">All 28 players assigned (1 GK &bull; 3 DF &bull; 2 MF &bull; 1 ST)</p>
       </div>
       <div id="resultsGrid" class="space-y-3"></div>
-      <div id="unsoldWrapper" class="mt-4 p-3 bg-slate-900 border border-slate-800 rounded-xl hidden">
-        <h3 class="text-[11px] font-bold text-rose-400 uppercase tracking-wider mb-2">Unsold Pool</h3>
-        <div id="unsoldList" class="flex flex-wrap gap-1.5"></div>
-      </div>
     </section>
 
     <!-- Bidding Screen -->
     <section id="biddingSection">
-      <!-- Captain Selection Card -->
+      <!-- Captain Selection -->
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-3">
         <label class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5">Select Your Team Captain</label>
         <select id="captainSelector" class="w-full bg-slate-950 border border-slate-700 text-slate-200 text-xs font-bold rounded-lg p-2 focus:outline-none focus:border-emerald-500">
@@ -63,10 +81,10 @@
       <!-- Positional Filters -->
       <div class="flex gap-1.5 overflow-x-auto no-scrollbar pb-2.5 pt-0.5 sticky top-0 bg-slate-950 z-20" id="posFilters">
         <button class="filter-btn active whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-600 text-white" data-pos="ALL">All (28)</button>
-        <button class="filter-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800" data-pos="GK">GK (Req: 1)</button>
-        <button class="filter-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800" data-pos="DF">DF (Req: 3)</button>
-        <button class="filter-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800" data-pos="MF">MF (Req: 2)</button>
-        <button class="filter-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800" data-pos="ST">ST (Req: 1)</button>
+        <button class="filter-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800" data-pos="GK">GK (1)</button>
+        <button class="filter-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800" data-pos="DF">DF (3)</button>
+        <button class="filter-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800" data-pos="MF">MF (2)</button>
+        <button class="filter-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800" data-pos="ST">ST (1)</button>
       </div>
 
       <!-- Player List -->
@@ -101,6 +119,29 @@
     let players = [];
     let captains = {};
     let activeFilter = "ALL";
+
+    // Auto-check URL for ?admin=true
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('admin') === 'true') {
+      document.getElementById("adminPanel").classList.remove("hidden");
+    }
+
+    document.getElementById("adminToggleBtn").addEventListener("click", () => {
+      document.getElementById("adminPanel").classList.toggle("hidden");
+    });
+
+    document.getElementById("forceResolveBtn").addEventListener("click", () => {
+      if (confirm("Force resolve auction right now with current bids?")) {
+        socket.emit('admin:resolve');
+      }
+    });
+
+    document.getElementById("resetAuctionBtn").addEventListener("click", () => {
+      if (confirm("Reset auction? All bids and rosters will be cleared.")) {
+        localStorage.clear();
+        socket.emit('admin:reset');
+      }
+    });
 
     function loadSavedBids() {
       const saved = localStorage.getItem(`rupa_bids_${currentTeamId}`);
@@ -138,10 +179,7 @@
     });
 
     document.getElementById("lockSubmitBtn").addEventListener("click", () => {
-      if (!captains[currentTeamId]) {
-        alert("Please select a team captain first!");
-        return;
-      }
+      if (!captains[currentTeamId]) return alert("Please select a team captain first!");
       const total = Object.values(myBids).reduce((s, v) => s + (Number(v) || 0), 0);
       if (total > 100) return alert("Total bids exceed 100 points!");
 
@@ -175,7 +213,14 @@
         }
       }
 
-      if (state.status === 'RESOLVED' && state.results) renderResults(state.results);
+      if (state.status === 'RESOLVED' && state.results) {
+        renderResults(state.results);
+      } else {
+        document.getElementById("resultsSection").classList.add("hidden");
+        document.getElementById("biddingSection").classList.remove("hidden");
+        document.getElementById("bottomBar").classList.remove("hidden");
+      }
+
       updateCaptainDropdown();
       renderPlayerList();
       updateBudget();
@@ -283,21 +328,14 @@
               <div class="flex justify-between items-center bg-slate-950 px-2 py-1.5 rounded text-xs border border-slate-800/60">
                 <span class="font-medium text-slate-200">
                   ${p.name} <span class="text-[10px] text-slate-500">(${p.pos})</span>
-                  ${p.isCaptain ? '<span class="text-[9px] text-emerald-400 font-bold ml-1">(C)</span>' : ''}
+                  ${p.isCaptain ? '<span class="text-[9px] text-emerald-400 font-bold ml-1">(C)</span>' : (p.isAutoDrafted ? '<span class="text-[9px] text-blue-400 font-semibold ml-1">(Drafted)</span>' : '')}
                 </span>
-                <span class="font-bold text-amber-400">${p.isCaptain ? '0 pts (C)' : `${p.cost} pts`}</span>
+                <span class="font-bold ${p.cost > 0 ? 'text-amber-400' : 'text-slate-400'}">${p.isCaptain ? '0 pts (C)' : (p.isAutoDrafted ? '0 pts (Draft)' : `${p.cost} pts`)}</span>
               </div>
             `).join("")}
           </div>
         </div>
       `).join("");
-
-      if (results.unsold && results.unsold.length > 0) {
-        document.getElementById("unsoldWrapper").classList.remove("hidden");
-        document.getElementById("unsoldList").innerHTML = results.unsold.map(p => `
-          <span class="text-[11px] bg-slate-950 border border-slate-800 px-2 py-1 rounded text-slate-400">${p.name} (${p.pos})</span>
-        `).join("");
-      }
     }
 
     loadSavedBids();
