@@ -13,10 +13,11 @@
   </style>
 </head>
 <body class="h-full text-slate-100 flex flex-col font-sans select-none antialiased">
-  <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-30 flex items-center justify-between shadow-md">
+  <!-- Top App Bar -->
+  <header class="bg-slate-900 border-b border-slate-800 px-4 py-2.5 sticky top-0 z-30 flex items-center justify-between shadow-md">
     <div class="flex items-center gap-2">
       <div class="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse"></div>
-      <h1 class="text-base font-black tracking-wider text-emerald-400">RUPA CUP</h1>
+      <h1 class="text-sm font-black tracking-wider text-emerald-400">RUPA CUP</h1>
     </div>
     <select id="teamSelector" class="bg-slate-950 border border-slate-700 text-slate-200 text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none">
       <option value="T1">Team 1</option>
@@ -26,6 +27,7 @@
     </select>
   </header>
 
+  <!-- Live Status Bar -->
   <section class="bg-slate-900/60 border-b border-slate-800/80 px-4 py-2 flex justify-between text-[11px] font-semibold text-slate-400">
     <div id="status-T1">T1: <span>Draft</span></div>
     <div id="status-T2">T2: <span>Draft</span></div>
@@ -33,10 +35,13 @@
     <div id="status-T4">T4: <span>Draft</span></div>
   </section>
 
+  <!-- Main Scrollable Area -->
   <main class="flex-1 overflow-y-auto pb-32 no-scrollbar px-3 pt-3">
+    <!-- Results Screen -->
     <section id="resultsSection" class="hidden mb-6">
       <div class="bg-emerald-950/40 border border-emerald-500/40 rounded-xl p-3 mb-4 text-center">
-        <h2 class="text-sm font-black text-emerald-400 uppercase tracking-wide">Auction Resolved</h2>
+        <h2 class="text-sm font-black text-emerald-400 uppercase tracking-wide">Auction Completed</h2>
+        <p class="text-[11px] text-slate-400">Formation: 1 GK &bull; 3 DF &bull; 2 MF &bull; 1 ST</p>
       </div>
       <div id="resultsGrid" class="space-y-3"></div>
       <div id="unsoldWrapper" class="mt-4 p-3 bg-slate-900 border border-slate-800 rounded-xl hidden">
@@ -45,18 +50,31 @@
       </div>
     </section>
 
+    <!-- Bidding Screen -->
     <section id="biddingSection">
+      <!-- Captain Selection Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-3">
+        <label class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5">Select Your Team Captain</label>
+        <select id="captainSelector" class="w-full bg-slate-950 border border-slate-700 text-slate-200 text-xs font-bold rounded-lg p-2 focus:outline-none focus:border-emerald-500">
+          <option value="">-- Choose Captain (Auto-assigned to Squad) --</option>
+        </select>
+      </div>
+
+      <!-- Positional Filters -->
       <div class="flex gap-1.5 overflow-x-auto no-scrollbar pb-2.5 pt-0.5 sticky top-0 bg-slate-950 z-20" id="posFilters">
         <button class="filter-btn active whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-600 text-white" data-pos="ALL">All (28)</button>
-        <button class="filter-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800" data-pos="GK">GK (4)</button>
-        <button class="filter-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800" data-pos="DF">DF (12)</button>
-        <button class="filter-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800" data-pos="MF">MF (8)</button>
-        <button class="filter-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800" data-pos="ST">ST (4)</button>
+        <button class="filter-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800" data-pos="GK">GK (Req: 1)</button>
+        <button class="filter-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800" data-pos="DF">DF (Req: 3)</button>
+        <button class="filter-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800" data-pos="MF">MF (Req: 2)</button>
+        <button class="filter-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800" data-pos="ST">ST (Req: 1)</button>
       </div>
+
+      <!-- Player List -->
       <div id="playerList" class="space-y-2 mt-1"></div>
     </section>
   </main>
 
+  <!-- Sticky Footer -->
   <footer id="bottomBar" class="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 p-3 z-30 shadow-2xl">
     <div class="max-w-md mx-auto">
       <div class="flex items-center justify-between mb-2 px-1">
@@ -81,6 +99,7 @@
     let myBids = {};
     let isLocked = false;
     let players = [];
+    let captains = {};
     let activeFilter = "ALL";
 
     function loadSavedBids() {
@@ -96,9 +115,15 @@
       currentTeamId = e.target.value;
       isLocked = false;
       loadSavedBids();
+      updateCaptainDropdown();
       renderPlayerList();
       updateBudget();
       resetLockBtn();
+    });
+
+    document.getElementById("captainSelector").addEventListener("change", (e) => {
+      const playerId = e.target.value;
+      socket.emit('captain:select', { teamId: currentTeamId, playerId: playerId });
     });
 
     document.getElementById("posFilters").addEventListener("click", (e) => {
@@ -113,8 +138,13 @@
     });
 
     document.getElementById("lockSubmitBtn").addEventListener("click", () => {
+      if (!captains[currentTeamId]) {
+        alert("Please select a team captain first!");
+        return;
+      }
       const total = Object.values(myBids).reduce((s, v) => s + (Number(v) || 0), 0);
       if (total > 100) return alert("Total bids exceed 100 points!");
+
       if (confirm(`Lock in final bids for ${currentTeamId}?`)) {
         isLocked = true;
         socket.emit('bids:submit', { teamId: currentTeamId, bids: myBids, locked: true });
@@ -135,6 +165,8 @@
 
     socket.on('state:sync', (state) => {
       players = state.players;
+      captains = state.captains || {};
+
       for (const [tId, sub] of Object.entries(state.submissions)) {
         const elem = document.querySelector(`#status-${tId} span`);
         if (elem) {
@@ -142,32 +174,49 @@
           elem.className = sub.locked ? "text-emerald-400 font-bold" : "text-slate-400";
         }
       }
+
       if (state.status === 'RESOLVED' && state.results) renderResults(state.results);
+      updateCaptainDropdown();
       renderPlayerList();
       updateBudget();
     });
 
+    function updateCaptainDropdown() {
+      const select = document.getElementById("captainSelector");
+      const currentCap = captains[currentTeamId] || "";
+      select.innerHTML = `<option value="">-- Choose Captain (Auto-assigned to Squad) --</option>` + 
+        players.map(p => `<option value="${p.id}" ${p.id == currentCap ? 'selected' : ''}>${p.name} (${p.pos})</option>`).join("");
+      select.disabled = isLocked;
+    }
+
     function renderPlayerList() {
       const container = document.getElementById("playerList");
       if (!players.length) return;
+
+      const myCapId = captains[currentTeamId];
       const filtered = activeFilter === "ALL" ? players : players.filter(p => p.pos === activeFilter);
 
       container.innerHTML = filtered.map(p => {
-        const val = myBids[p.id] || 0;
+        const isMyCap = p.id == myCapId;
+        const val = isMyCap ? 0 : (myBids[p.id] || 0);
+
         return `
-          <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
+          <div class="bg-slate-900 border ${isMyCap ? 'border-emerald-500/50 bg-emerald-950/20' : 'border-slate-800'} rounded-xl p-3 flex items-center justify-between">
             <div>
               <div class="flex items-center gap-1.5">
                 <span class="font-bold text-sm text-slate-100">${p.name}</span>
                 <span class="text-[10px] px-1.5 py-0.5 rounded font-bold ${getBadgeStyle(p.pos)}">${p.pos}</span>
+                ${isMyCap ? '<span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-600 text-white font-bold">CAPTAIN</span>' : ''}
               </div>
-              <span class="text-[11px] text-slate-500">${p.pos === 'GK' || p.pos === 'ST' ? 'Quota: 1' : 'Quota: 2-3'}</span>
+              <span class="text-[11px] text-slate-500">${isMyCap ? 'Included in Squad (0 Pts)' : `Target: ${getQuotaReq(p.pos)}`}</span>
             </div>
-            <div class="flex items-center gap-1">
-              <button class="step-btn w-8 h-8 rounded-lg bg-slate-950 border border-slate-700 active:bg-slate-800 text-slate-300 font-bold" data-id="${p.id}" data-delta="-1" ${isLocked ? 'disabled' : ''}>-</button>
-              <input type="number" value="${val === 0 ? '' : val}" placeholder="0" data-id="${p.id}" ${isLocked ? 'disabled' : ''} class="bid-input w-12 h-8 bg-slate-950 border border-slate-700 text-center rounded-lg text-emerald-400 font-black focus:outline-none" />
-              <button class="step-btn w-8 h-8 rounded-lg bg-slate-950 border border-slate-700 active:bg-slate-800 text-slate-300 font-bold" data-id="${p.id}" data-delta="1" ${isLocked ? 'disabled' : ''}>+</button>
-            </div>
+            ${isMyCap ? '<span class="text-xs font-bold text-emerald-400">Assigned</span>' : `
+              <div class="flex items-center gap-1">
+                <button class="step-btn w-8 h-8 rounded-lg bg-slate-950 border border-slate-700 active:bg-slate-800 text-slate-300 font-bold" data-id="${p.id}" data-delta="-1" ${isLocked ? 'disabled' : ''}>-</button>
+                <input type="number" value="${val === 0 ? '' : val}" placeholder="0" data-id="${p.id}" ${isLocked ? 'disabled' : ''} class="bid-input w-12 h-8 bg-slate-950 border border-slate-700 text-center rounded-lg text-emerald-400 font-black focus:outline-none" />
+                <button class="step-btn w-8 h-8 rounded-lg bg-slate-950 border border-slate-700 active:bg-slate-800 text-slate-300 font-bold" data-id="${p.id}" data-delta="1" ${isLocked ? 'disabled' : ''}>+</button>
+              </div>
+            `}
           </div>
         `;
       }).join("");
@@ -190,6 +239,13 @@
       }));
     }
 
+    function getQuotaReq(pos) {
+      if (pos === 'GK') return '1 Total';
+      if (pos === 'DF') return '3 Total';
+      if (pos === 'MF') return '2 Total';
+      return '1 Total';
+    }
+
     function getBadgeStyle(pos) {
       if (pos === 'GK') return 'bg-amber-500/20 text-amber-300 border border-amber-500/30';
       if (pos === 'DF') return 'bg-blue-500/20 text-blue-300 border border-blue-500/30';
@@ -198,6 +254,9 @@
     }
 
     function updateBudget() {
+      const myCapId = captains[currentTeamId];
+      if (myCapId && myBids[myCapId]) delete myBids[myCapId];
+
       const total = Object.values(myBids).reduce((s, v) => s + (Number(v) || 0), 0);
       const remain = 100 - total;
       document.getElementById("spentDisplay").textContent = `${total} / 100 Pts`;
@@ -211,17 +270,22 @@
       document.getElementById("biddingSection").classList.add("hidden");
       document.getElementById("bottomBar").classList.add("hidden");
 
-      document.getElementById("resultsGrid").innerHTML = Object.values(results.rosters).map(r => `
+      const grid = document.getElementById("resultsGrid");
+      grid.innerHTML = Object.values(results.rosters).map(r => `
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-3.5 shadow-md">
-          <div class="flex justify-between items-center pb-2 border-b border-slate-800 mb-2.5">
-            <h3 class="font-black text-sm text-slate-100">${r.info.name}</h3>
+          <div class="flex justify-between items-center pb-2 border-b border-slate-800 mb-2">
+            <h3 class="font-black text-sm text-slate-100">${r.name}</h3>
             <span class="text-xs px-2 py-0.5 rounded font-bold bg-emerald-950 border border-emerald-500/30 text-emerald-400">${r.purse} Pts Left</span>
           </div>
+          <div class="text-[10px] text-slate-400 mb-2">Squad (${r.squad.length}/7): GK:${r.counts.GK}/1 &bull; DF:${r.counts.DF}/3 &bull; MF:${r.counts.MF}/2 &bull; ST:${r.counts.ST}/1</div>
           <div class="space-y-1">
             ${r.squad.map(p => `
               <div class="flex justify-between items-center bg-slate-950 px-2 py-1.5 rounded text-xs border border-slate-800/60">
-                <span class="font-medium text-slate-200">${p.name} <span class="text-[10px] text-slate-500">(${p.pos})</span></span>
-                <span class="font-bold text-amber-400">${p.cost} pts</span>
+                <span class="font-medium text-slate-200">
+                  ${p.name} <span class="text-[10px] text-slate-500">(${p.pos})</span>
+                  ${p.isCaptain ? '<span class="text-[9px] text-emerald-400 font-bold ml-1">(C)</span>' : ''}
+                </span>
+                <span class="font-bold text-amber-400">${p.isCaptain ? '0 pts (C)' : `${p.cost} pts`}</span>
               </div>
             `).join("")}
           </div>
@@ -235,6 +299,7 @@
         `).join("");
       }
     }
+
     loadSavedBids();
   </script>
 </body>
