@@ -40,24 +40,12 @@ const PLAYERS = [
   { id: 28, name: "Final Slot (DF)", pos: "DF" }
 ];
 
-const TEAMS = [
-  { id: "T1", name: "Team 1" },
-  { id: "T2", name: "Team 2" },
-  { id: "T3", name: "Team 3" },
-  { id: "T4", name: "Team 4" }
-];
-
-const QUOTA_RULES = {
-  GK: { min: 1, max: 1 },
-  ST: { min: 1, max: 1 },
-  DF: { min: 2, max: 3 },
-  MF: { min: 2, max: 3 }
-};
+// Strict Quota: 1 GK, 3 DF, 2 MF, 1 ST = 7 Players Total
+const SQUAD_TARGETS = { GK: 1, DF: 3, MF: 2, ST: 1 };
 
 let gameState = {
   status: 'SUBMISSION',
-  teams: TEAMS,
-  players: PLAYERS,
+  captains: { T1: null, T2: null, T3: null, T4: null }, // Player ID assigned as captain
   submissions: {
     T1: { bids: {}, locked: false, timestamp: null },
     T2: { bids: {}, locked: false, timestamp: null },
@@ -70,6 +58,14 @@ let gameState = {
 io.on('connection', (socket) => {
   socket.emit('state:sync', getSanitizedState());
 
+  // Assign Captain to Team
+  socket.on('captain:select', ({ teamId, playerId }) => {
+    if (gameState.status === 'RESOLVED') return;
+    gameState.captains[teamId] = playerId ? parseInt(playerId) : null;
+    io.emit('state:sync', getSanitizedState());
+  });
+
+  // Save / Lock Bids
   socket.on('bids:submit', ({ teamId, bids, locked }) => {
     if (gameState.status === 'RESOLVED') return;
     if (!gameState.submissions[teamId]) return;
@@ -89,9 +85,10 @@ io.on('connection', (socket) => {
 
   socket.on('admin:reset', () => {
     gameState.status = 'SUBMISSION';
+    gameState.captains = { T1: null, T2: null, T3: null, T4: null };
     gameState.results = null;
-    TEAMS.forEach(t => {
-      gameState.submissions[t.id] = { bids: {}, locked: false, timestamp: null };
+    ['T1', 'T2', 'T3', 'T4'].forEach(tId => {
+      gameState.submissions[tId] = { bids: {}, locked: false, timestamp: null };
     });
     io.emit('state:sync', getSanitizedState());
   });
@@ -107,8 +104,8 @@ function getSanitizedState() {
   }
   return {
     status: gameState.status,
-    teams: gameState.teams,
-    players: gameState.players,
+    players: PLAYERS,
+    captains: gameState.captains,
     submissions: sanitizedSubmissions,
     results: gameState.results
   };
@@ -116,29 +113,46 @@ function getSanitizedState() {
 
 function runResolutionEngine() {
   gameState.status = 'RESOLVED';
-  let flatBids = [];
 
-  TEAMS.forEach(t => {
-    const teamSub = gameState.submissions[t.id];
+  let rosters = {
+    T1: { name: "Team 1", purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
+    T2: { name: "Team 2", purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
+    T3: { name: "Team 3", purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
+    T4: { name: "Team 4", purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } }
+  };
+
+  let assignedPlayers = new Set();
+
+  // 1. Pre-assign Captains to rosters for 0 pts
+  ['T1', 'T2', 'T3', 'T4'].forEach(tId => {
+    const capId = gameState.captains[tId];
+    if (capId) {
+      const capPlayer = PLAYERS.find(p => p.id === capId);
+      if (capPlayer) {
+        rosters[tId].squad.push({ ...capPlayer, cost: 0, isCaptain: true });
+        rosters[tId].counts[capPlayer.pos]++;
+        assignedPlayers.add(capPlayer.id);
+      }
+    }
+  });
+
+  // 2. Flatten & sort external bids
+  let flatBids = [];
+  ['T1', 'T2', 'T3', 'T4'].forEach(tId => {
+    const teamSub = gameState.submissions[tId];
     PLAYERS.forEach(p => {
+      // Cannot bid on own captain or assigned captain
+      if (assignedPlayers.has(p.id)) return;
       const amt = teamSub.bids[p.id] || 0;
       if (amt > 0) {
-        flatBids.push({ teamId: t.id, player: p, amount: amt, time: teamSub.timestamp });
+        flatBids.push({ teamId: tId, player: p, amount: amt, time: teamSub.timestamp });
       }
     });
   });
 
   flatBids.sort((a, b) => b.amount - a.amount || a.time - b.time);
 
-  let rosters = {
-    T1: { info: TEAMS[0], purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
-    T2: { info: TEAMS[1], purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
-    T3: { info: TEAMS[2], purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
-    T4: { info: TEAMS[3], purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } }
-  };
-
-  let assignedPlayers = new Set();
-
+  // 3. Resolve bids against strict targets
   flatBids.forEach(bid => {
     const { teamId, player, amount } = bid;
     const roster = rosters[teamId];
@@ -147,11 +161,11 @@ function runResolutionEngine() {
     if (assignedPlayers.has(player.id)) return;
     if (roster.squad.length >= 7) return;
     if (roster.purse < amount) return;
-    if (roster.counts[pos] >= QUOTA_RULES[pos].max) return;
+    if (roster.counts[pos] >= SQUAD_TARGETS[pos]) return;
 
     assignedPlayers.add(player.id);
     roster.purse -= amount;
-    roster.squad.push({ ...player, cost: amount });
+    roster.squad.push({ ...player, cost: amount, isCaptain: false });
     roster.counts[pos]++;
   });
 
@@ -161,4 +175,4 @@ function runResolutionEngine() {
 }
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
