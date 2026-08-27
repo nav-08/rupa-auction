@@ -37,7 +37,7 @@ const PLAYERS = [
   { id: 25, name: "Abhishek", pos: "DF" },
   { id: 26, name: "Nabadeep", pos: "DF" },
   { id: 27, name: "Tanay", pos: "DF" },
-  { id: 28, name: "Final Slot (DF)", pos: "DF" }
+  { id: 28, name: "Omesh", pos: "DF" }
 ];
 
 const SQUAD_TARGETS = { GK: 1, DF: 3, MF: 2, ST: 1 };
@@ -80,7 +80,6 @@ io.on('connection', (socket) => {
     if (allLocked) runResolutionEngine();
   });
 
-  // Admin Actions
   socket.on('admin:resolve', () => {
     runResolutionEngine();
   });
@@ -151,7 +150,6 @@ function runResolutionEngine() {
     });
   });
 
-  // Sort by highest amount, tiebreaker by earliest submission time
   flatBids.sort((a, b) => b.amount - a.amount || a.time - b.time);
 
   flatBids.forEach(bid => {
@@ -170,20 +168,17 @@ function runResolutionEngine() {
     roster.counts[pos]++;
   });
 
-  // 3. Auto-Draft Remaining Players (NO UNSOLD)
+  // 3. Auto-Draft Remaining Players (NO UNSOLD POOL)
   let unassignedPlayers = PLAYERS.filter(p => !assignedPlayers.has(p.id));
-  // Shuffle randomly
   unassignedPlayers.sort(() => Math.random() - 0.5);
 
   unassignedPlayers.forEach(player => {
     const pos = player.pos;
-    // Find all teams that still need this position and have space
     const eligibleTeams = Object.values(rosters).filter(
       r => r.squad.length < 7 && r.counts[pos] < SQUAD_TARGETS[pos]
     );
 
     if (eligibleTeams.length > 0) {
-      // Pick randomly among eligible teams
       const chosenTeam = eligibleTeams[Math.floor(Math.random() * eligibleTeams.length)];
       chosenTeam.squad.push({ ...player, cost: 0, isCaptain: false, isAutoDrafted: true });
       chosenTeam.counts[pos]++;
