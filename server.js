@@ -40,12 +40,11 @@ const PLAYERS = [
   { id: 28, name: "Final Slot (DF)", pos: "DF" }
 ];
 
-// Strict Quota: 1 GK, 3 DF, 2 MF, 1 ST = 7 Players Total
 const SQUAD_TARGETS = { GK: 1, DF: 3, MF: 2, ST: 1 };
 
 let gameState = {
   status: 'SUBMISSION',
-  captains: { T1: null, T2: null, T3: null, T4: null }, // Player ID assigned as captain
+  captains: { T1: null, T2: null, T3: null, T4: null },
   submissions: {
     T1: { bids: {}, locked: false, timestamp: null },
     T2: { bids: {}, locked: false, timestamp: null },
@@ -58,14 +57,12 @@ let gameState = {
 io.on('connection', (socket) => {
   socket.emit('state:sync', getSanitizedState());
 
-  // Assign Captain to Team
   socket.on('captain:select', ({ teamId, playerId }) => {
     if (gameState.status === 'RESOLVED') return;
     gameState.captains[teamId] = playerId ? parseInt(playerId) : null;
     io.emit('state:sync', getSanitizedState());
   });
 
-  // Save / Lock Bids
   socket.on('bids:submit', ({ teamId, bids, locked }) => {
     if (gameState.status === 'RESOLVED') return;
     if (!gameState.submissions[teamId]) return;
@@ -81,6 +78,11 @@ io.on('connection', (socket) => {
 
     const allLocked = Object.values(gameState.submissions).every(s => s.locked);
     if (allLocked) runResolutionEngine();
+  });
+
+  // Admin Actions
+  socket.on('admin:resolve', () => {
+    runResolutionEngine();
   });
 
   socket.on('admin:reset', () => {
@@ -115,33 +117,32 @@ function runResolutionEngine() {
   gameState.status = 'RESOLVED';
 
   let rosters = {
-    T1: { name: "Team 1", purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
-    T2: { name: "Team 2", purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
-    T3: { name: "Team 3", purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
-    T4: { name: "Team 4", purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } }
+    T1: { id: "T1", name: "Team 1", purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
+    T2: { id: "T2", name: "Team 2", purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
+    T3: { id: "T3", name: "Team 3", purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
+    T4: { id: "T4", name: "Team 4", purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } }
   };
 
   let assignedPlayers = new Set();
 
-  // 1. Pre-assign Captains to rosters for 0 pts
+  // 1. Assign Captains (Cost: 0 pts)
   ['T1', 'T2', 'T3', 'T4'].forEach(tId => {
     const capId = gameState.captains[tId];
     if (capId) {
       const capPlayer = PLAYERS.find(p => p.id === capId);
       if (capPlayer) {
-        rosters[tId].squad.push({ ...capPlayer, cost: 0, isCaptain: true });
+        rosters[tId].squad.push({ ...capPlayer, cost: 0, isCaptain: true, isAutoDrafted: false });
         rosters[tId].counts[capPlayer.pos]++;
         assignedPlayers.add(capPlayer.id);
       }
     }
   });
 
-  // 2. Flatten & sort external bids
+  // 2. High Bid Resolution
   let flatBids = [];
   ['T1', 'T2', 'T3', 'T4'].forEach(tId => {
     const teamSub = gameState.submissions[tId];
     PLAYERS.forEach(p => {
-      // Cannot bid on own captain or assigned captain
       if (assignedPlayers.has(p.id)) return;
       const amt = teamSub.bids[p.id] || 0;
       if (amt > 0) {
@@ -150,9 +151,9 @@ function runResolutionEngine() {
     });
   });
 
+  // Sort by highest amount, tiebreaker by earliest submission time
   flatBids.sort((a, b) => b.amount - a.amount || a.time - b.time);
 
-  // 3. Resolve bids against strict targets
   flatBids.forEach(bid => {
     const { teamId, player, amount } = bid;
     const roster = rosters[teamId];
@@ -165,14 +166,34 @@ function runResolutionEngine() {
 
     assignedPlayers.add(player.id);
     roster.purse -= amount;
-    roster.squad.push({ ...player, cost: amount, isCaptain: false });
+    roster.squad.push({ ...player, cost: amount, isCaptain: false, isAutoDrafted: false });
     roster.counts[pos]++;
   });
 
-  const unsold = PLAYERS.filter(p => !assignedPlayers.has(p.id));
-  gameState.results = { rosters, unsold };
+  // 3. Auto-Draft Remaining Players (NO UNSOLD)
+  let unassignedPlayers = PLAYERS.filter(p => !assignedPlayers.has(p.id));
+  // Shuffle randomly
+  unassignedPlayers.sort(() => Math.random() - 0.5);
+
+  unassignedPlayers.forEach(player => {
+    const pos = player.pos;
+    // Find all teams that still need this position and have space
+    const eligibleTeams = Object.values(rosters).filter(
+      r => r.squad.length < 7 && r.counts[pos] < SQUAD_TARGETS[pos]
+    );
+
+    if (eligibleTeams.length > 0) {
+      // Pick randomly among eligible teams
+      const chosenTeam = eligibleTeams[Math.floor(Math.random() * eligibleTeams.length)];
+      chosenTeam.squad.push({ ...player, cost: 0, isCaptain: false, isAutoDrafted: true });
+      chosenTeam.counts[pos]++;
+      assignedPlayers.add(player.id);
+    }
+  });
+
+  gameState.results = { rosters };
   io.emit('state:sync', getSanitizedState());
 }
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
