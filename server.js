@@ -43,192 +43,216 @@ const PLAYERS = [
 const SQUAD_TARGETS = { GK: 1, DF: 3, MF: 2, ST: 1 };
 
 let gameState = {
-  status: 'SUBMISSION',
-  captains: { T1: null, T2: null, T3: null, T4: null },
-  submissions: {
-    T1: { bids: {}, locked: false, timestamp: null },
-    T2: { bids: {}, locked: false, timestamp: null },
-    T3: { bids: {}, locked: false, timestamp: null },
-    T4: { bids: {}, locked: false, timestamp: null }
+  teams: {
+    T1: { id: "T1", name: "Team 1", captain: null, purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
+    T2: { id: "T2", name: "Team 2", captain: null, purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
+    T3: { id: "T3", name: "Team 3", captain: null, purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
+    T4: { id: "T4", name: "Team 4", captain: null, purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } }
   },
-  results: null
+  currentLot: null, // { player, currentBid, highBidderTeamId, highBidderName, passes: [] }
+  timer: null,
+  timeLeft: 60,
+  soldHistory: []
 };
 
-function getTeamNeeds(teamId) {
-  const capId = gameState.captains[teamId];
-  const capPlayer = PLAYERS.find(p => p.id === capId);
-  let needs = { ...SQUAD_TARGETS };
-  if (capPlayer) {
-    needs[capPlayer.pos] = Math.max(0, needs[capPlayer.pos] - 1);
-  }
-  return needs;
+let timerInterval = null;
+
+function broadcastState() {
+  io.emit('state:sync', {
+    teams: gameState.teams,
+    currentLot: gameState.currentLot,
+    timeLeft: gameState.timeLeft,
+    soldHistory: gameState.soldHistory,
+    players: PLAYERS
+  });
 }
 
-function validateBidCoverage(teamId, bids) {
-  const needs = getTeamNeeds(teamId);
-  const capId = gameState.captains[teamId];
-
-  let bidCounts = { GK: 0, DF: 0, MF: 0, ST: 0 };
-  for (const [pId, amt] of Object.entries(bids)) {
-    if (parseInt(pId) === capId) continue;
-    if (Number(amt) > 0) {
-      const p = PLAYERS.find(pl => pl.id === parseInt(pId));
-      if (p) bidCounts[p.pos]++;
+function startTimer() {
+  clearInterval(timerInterval);
+  gameState.timeLeft = 60;
+  timerInterval = setInterval(() => {
+    gameState.timeLeft--;
+    if (gameState.timeLeft <= 0) {
+      clearInterval(timerInterval);
+      hammerDown();
+    } else {
+      io.emit('timer:tick', gameState.timeLeft);
     }
+  }, 1000);
+}
+
+function hammerDown() {
+  clearInterval(timerInterval);
+  if (!gameState.currentLot) return;
+
+  const { player, currentBid, highBidderTeamId } = gameState.currentLot;
+
+  if (highBidderTeamId && currentBid > 0) {
+    const team = gameState.teams[highBidderTeamId];
+    team.purse -= currentBid;
+    team.squad.push({ ...player, cost: currentBid, isCaptain: false });
+    team.counts[player.pos]++;
+
+    gameState.soldHistory.push({
+      player,
+      teamId: highBidderTeamId,
+      teamName: team.name,
+      cost: currentBid,
+      status: 'SOLD'
+    });
+  } else {
+    gameState.soldHistory.push({
+      player,
+      teamId: null,
+      teamName: 'Unsold',
+      cost: 0,
+      status: 'UNSOLD'
+    });
   }
 
-  for (const [pos, req] of Object.entries(needs)) {
-    if (bidCounts[pos] < req) return false;
-  }
-  return true;
+  gameState.currentLot = null;
+  gameState.timeLeft = 60;
+  broadcastState();
 }
 
 io.on('connection', (socket) => {
-  socket.emit('state:sync', getSanitizedState());
-
-  socket.on('captain:select', ({ teamId, playerId }) => {
-    if (gameState.status === 'RESOLVED') return;
-    gameState.captains[teamId] = playerId ? parseInt(playerId) : null;
-    io.emit('state:sync', getSanitizedState());
+  socket.emit('state:sync', {
+    teams: gameState.teams,
+    currentLot: gameState.currentLot,
+    timeLeft: gameState.timeLeft,
+    soldHistory: gameState.soldHistory,
+    players: PLAYERS
   });
 
-  socket.on('bids:submit', ({ teamId, bids, locked }) => {
-    if (gameState.status === 'RESOLVED') return;
-    if (!gameState.submissions[teamId]) return;
+  // Captain Login & Auto Team Assignment
+  socket.on('captain:claim', ({ playerId }) => {
+    const pId = parseInt(playerId);
+    const player = PLAYERS.find(p => p.id === pId);
+    if (!player) return;
 
-    const total = Object.values(bids).reduce((acc, v) => acc + (Number(v) || 0), 0);
-    if (total > 100) return;
-
-    if (locked) {
-      if (!gameState.captains[teamId]) {
-        socket.emit('error:validation', 'Please select a team captain first.');
-        return;
-      }
-      if (!validateBidCoverage(teamId, bids)) {
-        socket.emit('error:validation', 'You must place active bids across all required position categories (1 GK, 3 DF, 2 MF, 1 ST total) before locking.');
+    // Check if already captain
+    for (const team of Object.values(gameState.teams)) {
+      if (team.captain && team.captain.id === pId) {
+        socket.emit('error:msg', 'This player is already a registered captain.');
         return;
       }
     }
 
-    gameState.submissions[teamId].bids = bids;
-    gameState.submissions[teamId].locked = locked;
-    gameState.submissions[teamId].timestamp = Date.now();
+    // Find next open team
+    const openTeam = Object.values(gameState.teams).find(t => !t.captain);
+    if (!openTeam) {
+      socket.emit('error:msg', 'All 4 Captain slots are filled.');
+      return;
+    }
 
-    io.emit('state:sync', getSanitizedState());
+    openTeam.captain = player;
+    openTeam.name = `${player.name}'s Team`;
+    openTeam.squad.push({ ...player, cost: 0, isCaptain: true });
+    openTeam.counts[player.pos]++;
 
-    const allLocked = Object.values(gameState.submissions).every(s => s.locked);
-    if (allLocked) runResolutionEngine();
+    socket.emit('captain:assigned', { teamId: openTeam.id, captain: player });
+    broadcastState();
   });
 
-  socket.on('admin:resolve', () => {
-    runResolutionEngine();
+  // Admin puts player up for bid
+  socket.on('admin:start_lot', ({ playerId }) => {
+    if (gameState.currentLot) return;
+    const player = PLAYERS.find(p => p.id === parseInt(playerId));
+    if (!player) return;
+
+    gameState.currentLot = {
+      player,
+      currentBid: 0,
+      highBidderTeamId: null,
+      highBidderName: null,
+      passes: []
+    };
+
+    startTimer();
+    broadcastState();
   });
 
+  // Place Incremental Bid
+  socket.on('bid:place', ({ teamId, increment }) => {
+    if (!gameState.currentLot) return;
+    const team = gameState.teams[teamId];
+    if (!team) return;
+
+    const player = gameState.currentLot.player;
+    const nextBid = gameState.currentLot.currentBid === 0 ? Math.max(1, increment) : gameState.currentLot.currentBid + increment;
+
+    // Validation 1: Squad Full
+    if (team.squad.length >= 7) {
+      socket.emit('error:msg', 'Your squad is already full (7 players).');
+      return;
+    }
+
+    // Validation 2: Position Full
+    if (team.counts[player.pos] >= SQUAD_TARGETS[player.pos]) {
+      socket.emit('error:msg', `You have already satisfied your quota for ${player.pos}.`);
+      return;
+    }
+
+    // Validation 3: Budget check
+    if (team.purse < nextBid) {
+      socket.emit('error:msg', 'Insufficient points remaining.');
+      return;
+    }
+
+    // Validation 4: Must leave at least 0 points (or reserve for future slots)
+    const unfilledSlots = 7 - team.squad.length;
+    if (team.purse - nextBid < (unfilledSlots - 1) * 0) {
+      socket.emit('error:msg', 'Bid exceeds maximum purse safety limit.');
+      return;
+    }
+
+    gameState.currentLot.currentBid = nextBid;
+    gameState.currentLot.highBidderTeamId = team.id;
+    gameState.currentLot.highBidderName = team.name;
+    gameState.currentLot.passes = []; // reset passes on new bid
+
+    startTimer(); // Reset 1-minute countdown
+    broadcastState();
+  });
+
+  // Captain Passes
+  socket.on('bid:pass', ({ teamId }) => {
+    if (!gameState.currentLot) return;
+    if (!gameState.currentLot.passes.includes(teamId)) {
+      gameState.currentLot.passes.push(teamId);
+    }
+
+    const activeCaptains = Object.values(gameState.teams).filter(t => t.captain);
+    if (activeCaptains.length > 0 && gameState.currentLot.passes.length >= activeCaptains.length) {
+      hammerDown();
+    } else {
+      broadcastState();
+    }
+  });
+
+  // Admin Force Hammer
+  socket.on('admin:hammer', () => {
+    hammerDown();
+  });
+
+  // Admin Reset
   socket.on('admin:reset', () => {
-    gameState.status = 'SUBMISSION';
-    gameState.captains = { T1: null, T2: null, T3: null, T4: null };
-    gameState.results = null;
-    ['T1', 'T2', 'T3', 'T4'].forEach(tId => {
-      gameState.submissions[tId] = { bids: {}, locked: false, timestamp: null };
-    });
-    io.emit('state:sync', getSanitizedState());
+    clearInterval(timerInterval);
+    gameState = {
+      teams: {
+        T1: { id: "T1", name: "Team 1", captain: null, purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
+        T2: { id: "T2", name: "Team 2", captain: null, purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
+        T3: { id: "T3", name: "Team 3", captain: null, purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
+        T4: { id: "T4", name: "Team 4", captain: null, purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } }
+      },
+      currentLot: null,
+      timer: null,
+      timeLeft: 60,
+      soldHistory: []
+    };
+    broadcastState();
   });
 });
 
-function getSanitizedState() {
-  const sanitizedSubmissions = {};
-  for (const [tId, sub] of Object.entries(gameState.submissions)) {
-    sanitizedSubmissions[tId] = {
-      locked: sub.locked,
-      bidCount: Object.keys(sub.bids).filter(k => sub.bids[k] > 0).length
-    };
-  }
-  return {
-    status: gameState.status,
-    players: PLAYERS,
-    captains: gameState.captains,
-    submissions: sanitizedSubmissions,
-    results: gameState.results
-  };
-}
-
-function runResolutionEngine() {
-  gameState.status = 'RESOLVED';
-
-  let rosters = {
-    T1: { id: "T1", name: "Team 1", purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
-    T2: { id: "T2", name: "Team 2", purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
-    T3: { id: "T3", name: "Team 3", purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } },
-    T4: { id: "T4", name: "Team 4", purse: 100, squad: [], counts: { GK: 0, DF: 0, MF: 0, ST: 0 } }
-  };
-
-  let assignedPlayers = new Set();
-
-  // 1. Assign Captains (Cost: 0 pts)
-  ['T1', 'T2', 'T3', 'T4'].forEach(tId => {
-    const capId = gameState.captains[tId];
-    if (capId) {
-      const capPlayer = PLAYERS.find(p => p.id === capId);
-      if (capPlayer) {
-        rosters[tId].squad.push({ ...capPlayer, cost: 0, isCaptain: true, isAutoDrafted: false });
-        rosters[tId].counts[capPlayer.pos]++;
-        assignedPlayers.add(capPlayer.id);
-      }
-    }
-  });
-
-  // 2. High Bid Resolution
-  let flatBids = [];
-  ['T1', 'T2', 'T3', 'T4'].forEach(tId => {
-    const teamSub = gameState.submissions[tId];
-    PLAYERS.forEach(p => {
-      if (assignedPlayers.has(p.id)) return;
-      const amt = teamSub.bids[p.id] || 0;
-      if (amt > 0) {
-        flatBids.push({ teamId: tId, player: p, amount: amt, time: teamSub.timestamp });
-      }
-    });
-  });
-
-  flatBids.sort((a, b) => b.amount - a.amount || a.time - b.time);
-
-  flatBids.forEach(bid => {
-    const { teamId, player, amount } = bid;
-    const roster = rosters[teamId];
-    const pos = player.pos;
-
-    if (assignedPlayers.has(player.id)) return;
-    if (roster.squad.length >= 7) return;
-    if (roster.purse < amount) return;
-    if (roster.counts[pos] >= SQUAD_TARGETS[pos]) return;
-
-    assignedPlayers.add(player.id);
-    roster.purse -= amount;
-    roster.squad.push({ ...player, cost: amount, isCaptain: false, isAutoDrafted: false });
-    roster.counts[pos]++;
-  });
-
-  // 3. Auto-Draft remaining pool to ensure 100% full squads
-  let unassignedPlayers = PLAYERS.filter(p => !assignedPlayers.has(p.id));
-  unassignedPlayers.sort(() => Math.random() - 0.5);
-
-  unassignedPlayers.forEach(player => {
-    const pos = player.pos;
-    const eligibleTeams = Object.values(rosters).filter(
-      r => r.squad.length < 7 && r.counts[pos] < SQUAD_TARGETS[pos]
-    );
-
-    if (eligibleTeams.length > 0) {
-      const chosenTeam = eligibleTeams[Math.floor(Math.random() * eligibleTeams.length)];
-      chosenTeam.squad.push({ ...player, cost: 0, isCaptain: false, isAutoDrafted: true });
-      chosenTeam.counts[pos]++;
-      assignedPlayers.add(player.id);
-    }
-  });
-
-  gameState.results = { rosters };
-  io.emit('state:sync', getSanitizedState());
-}
-
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+server.listen(PORT, () => console.log(`Live Auction Server running on port ${PORT}`));
