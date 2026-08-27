@@ -54,6 +54,35 @@ let gameState = {
   results: null
 };
 
+function getTeamNeeds(teamId) {
+  const capId = gameState.captains[teamId];
+  const capPlayer = PLAYERS.find(p => p.id === capId);
+  let needs = { ...SQUAD_TARGETS };
+  if (capPlayer) {
+    needs[capPlayer.pos] = Math.max(0, needs[capPlayer.pos] - 1);
+  }
+  return needs;
+}
+
+function validateBidCoverage(teamId, bids) {
+  const needs = getTeamNeeds(teamId);
+  const capId = gameState.captains[teamId];
+
+  let bidCounts = { GK: 0, DF: 0, MF: 0, ST: 0 };
+  for (const [pId, amt] of Object.entries(bids)) {
+    if (parseInt(pId) === capId) continue;
+    if (Number(amt) > 0) {
+      const p = PLAYERS.find(pl => pl.id === parseInt(pId));
+      if (p) bidCounts[p.pos]++;
+    }
+  }
+
+  for (const [pos, req] of Object.entries(needs)) {
+    if (bidCounts[pos] < req) return false;
+  }
+  return true;
+}
+
 io.on('connection', (socket) => {
   socket.emit('state:sync', getSanitizedState());
 
@@ -69,6 +98,17 @@ io.on('connection', (socket) => {
 
     const total = Object.values(bids).reduce((acc, v) => acc + (Number(v) || 0), 0);
     if (total > 100) return;
+
+    if (locked) {
+      if (!gameState.captains[teamId]) {
+        socket.emit('error:validation', 'Please select a team captain first.');
+        return;
+      }
+      if (!validateBidCoverage(teamId, bids)) {
+        socket.emit('error:validation', 'You must place active bids across all required position categories (1 GK, 3 DF, 2 MF, 1 ST total) before locking.');
+        return;
+      }
+    }
 
     gameState.submissions[teamId].bids = bids;
     gameState.submissions[teamId].locked = locked;
@@ -168,7 +208,7 @@ function runResolutionEngine() {
     roster.counts[pos]++;
   });
 
-  // 3. Auto-Draft Remaining Players (NO UNSOLD POOL)
+  // 3. Auto-Draft remaining pool to ensure 100% full squads
   let unassignedPlayers = PLAYERS.filter(p => !assignedPlayers.has(p.id));
   unassignedPlayers.sort(() => Math.random() - 0.5);
 
