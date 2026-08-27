@@ -14,7 +14,7 @@
 </head>
 <body class="h-full text-slate-100 flex flex-col font-sans select-none antialiased">
 
-  <!-- Top Navigation Bar -->
+  <!-- Top App Bar -->
   <header class="bg-slate-900 border-b border-slate-800 px-4 py-2.5 sticky top-0 z-30 flex items-center justify-between shadow-md">
     <div class="flex items-center gap-2">
       <div class="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse"></div>
@@ -71,15 +71,18 @@
     <section id="biddingSection">
       <!-- Captain Selection -->
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-3">
-        <label class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5">Select Your Team Captain</label>
+        <label class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5">1. Select Your Team Captain</label>
         <select id="captainSelector" class="w-full bg-slate-950 border border-slate-700 text-slate-200 text-xs font-bold rounded-lg p-2 focus:outline-none focus:border-emerald-500">
           <option value="">-- Choose Captain (Auto-assigned to Squad) --</option>
         </select>
       </div>
 
-      <!-- Live Bid Quota Tracker Card -->
+      <!-- Live Bid Coverage Tracker -->
       <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-2.5 mb-3 text-[11px]">
-        <div class="font-bold text-slate-300 mb-1">Required Active Bids to Lock:</div>
+        <div class="font-bold text-slate-300 mb-1 flex justify-between items-center">
+          <span>2. Category Bid Coverage:</span>
+          <span id="coverageStatusLabel" class="text-[10px] text-rose-400 font-normal">Incomplete</span>
+        </div>
         <div class="grid grid-cols-4 gap-1 text-center font-bold" id="quotaTrackerBar">
           <div id="quota-GK" class="bg-slate-950 p-1.5 rounded border border-slate-800 text-slate-400">GK: 0/1</div>
           <div id="quota-DF" class="bg-slate-950 p-1.5 rounded border border-slate-800 text-slate-400">DF: 0/3</div>
@@ -111,7 +114,7 @@
           <span id="purseDisplay" class="text-lg font-black text-emerald-400 leading-none">100 Pts</span>
         </div>
         <div class="text-right">
-          <span class="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">Total Bids</span>
+          <span class="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">Total Spent</span>
           <span id="spentDisplay" class="text-sm font-bold text-amber-400 leading-none">0 / 100 Pts</span>
         </div>
       </div>
@@ -132,7 +135,6 @@
 
     const TOTAL_TARGETS = { GK: 1, DF: 3, MF: 2, ST: 1 };
 
-    // Auto-check URL for ?admin=true
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('admin') === 'true') {
       document.getElementById("adminPanel").classList.remove("hidden");
@@ -207,7 +209,7 @@
 
       for (const [pId, amt] of Object.entries(myBids)) {
         if (pId == capId) continue;
-        if (amt > 0) {
+        if (Number(amt) > 0) {
           const p = players.find(pl => pl.id == pId);
           if (p) counts[p.pos]++;
         }
@@ -216,24 +218,30 @@
     }
 
     document.getElementById("lockSubmitBtn").addEventListener("click", () => {
-      if (!captains[currentTeamId]) return alert("Please select a team captain first!");
+      if (!captains[currentTeamId]) {
+        alert("Please select a team captain first!");
+        return;
+      }
 
       const total = Object.values(myBids).reduce((s, v) => s + (Number(v) || 0), 0);
-      if (total > 100) return alert("Total bids exceed 100 points!");
+      if (total > 100) {
+        alert("Total bids exceed 100 points! Adjust before locking.");
+        return;
+      }
 
-      // Enforce Minimum Bid Requirements
+      // Check Bid Coverage across all categories
       const needs = getRemainingNeeds();
       const currentBids = getActiveBidCounts();
 
       let missing = [];
       for (const [pos, neededCount] of Object.entries(needs)) {
         if (currentBids[pos] < neededCount) {
-          missing.push(`${pos}: need bids on ${neededCount} player(s), currently have ${currentBids[pos]}`);
+          missing.push(`${pos}: need at least ${neededCount} active bid(s), currently have ${currentBids[pos]}`);
         }
       }
 
       if (missing.length > 0) {
-        alert("Cannot lock yet! You must bid on at least your required squad slots:\n\n• " + missing.join("\n• "));
+        alert("Cannot Lock Bids!\n\nYou must place active bids to cover your required squad formation:\n\n• " + missing.join("\n• "));
         return;
       }
 
@@ -254,6 +262,13 @@
       btn.className = "w-full bg-emerald-600 active:bg-emerald-500 text-white font-black py-3 rounded-xl text-sm uppercase tracking-wider shadow-lg flex items-center justify-center";
       btn.textContent = "Lock & Submit Bids";
     }
+
+    socket.on('error:validation', (msg) => {
+      alert(msg);
+      resetLockBtn();
+      isLocked = false;
+      renderPlayerList();
+    });
 
     socket.on('state:sync', (state) => {
       players = state.players;
@@ -307,7 +322,7 @@
                 <span class="text-[10px] px-1.5 py-0.5 rounded font-bold ${getBadgeStyle(p.pos)}">${p.pos}</span>
                 ${isMyCap ? '<span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-600 text-white font-bold">CAPTAIN</span>' : ''}
               </div>
-              <span class="text-[11px] text-slate-500">${isMyCap ? 'Included in Squad (0 Pts)' : `Target: ${getQuotaReq(p.pos)}`}</span>
+              <span class="text-[11px] text-slate-500">${isMyCap ? 'Auto-added to Squad (0 Pts)' : `Squad Target: ${getQuotaReq(p.pos)}`}</span>
             </div>
             ${isMyCap ? '<span class="text-xs font-bold text-emerald-400">Assigned</span>' : `
               <div class="flex items-center gap-1">
@@ -363,9 +378,10 @@
       purseElem.textContent = `${remain} Pts`;
       purseElem.className = remain < 0 ? "text-lg font-black text-rose-500 animate-pulse leading-none" : "text-lg font-black text-emerald-400 leading-none";
 
-      // Update Live Quota Tracker
+      // Live Category Tracker & Validation
       const needs = getRemainingNeeds();
       const currentCounts = getActiveBidCounts();
+      let allSatisfied = true;
 
       ['GK', 'DF', 'MF', 'ST'].forEach(pos => {
         const el = document.getElementById(`quota-${pos}`);
@@ -376,8 +392,18 @@
           el.className = "bg-emerald-950/80 p-1.5 rounded border border-emerald-500/40 text-emerald-400";
         } else {
           el.className = "bg-slate-950 p-1.5 rounded border border-slate-800 text-slate-400";
+          allSatisfied = false;
         }
       });
+
+      const label = document.getElementById("coverageStatusLabel");
+      if (allSatisfied) {
+        label.textContent = "Ready to Lock ✓";
+        label.className = "text-[10px] text-emerald-400 font-bold";
+      } else {
+        label.textContent = "Incomplete";
+        label.className = "text-[10px] text-rose-400 font-normal";
+      }
     }
 
     function renderResults(results) {
